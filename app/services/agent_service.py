@@ -2,19 +2,17 @@ import ollama
 from app.config import settings
 from app.services.math_tools import calculate_expression
 
-# Definição do esquema da ferramenta para o entendimento do modelo (Function Calling)
-# O modelo utiliza este JSON para decidir quando chamar a função
 math_tool_definition = {
     "type": "function",
     "function": {
         "name": "calculate_expression",
-        "description": "Realiza cálculos matemáticos precisos. Útil para somas, multiplicações, raízes quadradas, etc.",
+        "description": "Realiza cálculos matemáticos exatos.",
         "parameters": {
             "type": "object",
             "properties": {
                 "expression": {
                     "type": "string",
-                    "description": "A expressão matemática a ser calculada. Ex: '12 * 5' ou 'sqrt(144)'"
+                    "description": "A expressão matemática. Ex: '12 * 5'"
                 }
             },
             "required": ["expression"]
@@ -22,48 +20,67 @@ math_tool_definition = {
     }
 }
 
-# Mapa de funções disponíveis para execução pelo agente
 available_functions = {
     "calculate_expression": calculate_expression
 }
 
 async def process_message(user_message: str) -> str:
     """
-    Orquestra a interação entre a mensagem do usuário, o modelo Ollama e as ferramentas.
+    Orquestra a interação com o modelo com verificação contra alucinações.
     """
     try:
-        # Inicialização do cliente Ollama apontando para a URL configurada
         client = ollama.Client(host=settings.OLLAMA_BASE_URL)
 
-        # Envio da mensagem inicial para o modelo com a definição das ferramentas disponíveis
-        # O parâmetro 'tools' informa ao modelo o que ele pode utilizar
+        # Prompt ainda mais agressivo para evitar chamadas indevidas
+        system_instructions = (
+            "Você é o melhor assistente virtual. "
+            "REGRA DE OURO: JAMAIS chame a ferramenta 'calculate_expression' se a mensagem do usuário não contiver números explícitos. "
+            "Para 'oi', 'teste', 'olá', apenas responda com texto cordial ou qualquer coisa que nao seja matematica ou exija calculadora."
+        )
+
+        messages_payload = [
+            {'role': 'system', 'content': system_instructions},
+            {'role': 'user', 'content': user_message}
+        ]
+
         response = client.chat(
             model=settings.MODEL_NAME,
-            messages=[{'role': 'user', 'content': user_message}],
+            messages=messages_payload,
             tools=[math_tool_definition]
         )
 
-        # Verificação de chamadas de ferramenta na resposta do modelo
+        print(f"\n[DEBUG] IA Decidiu: {response['message']}")
+
+        # Lógica de verificação
         if response.get('message', {}).get('tool_calls'):
-            
-            # Iteração sobre as ferramentas solicitadas pelo modelo
             for tool in response['message']['tool_calls']:
                 function_name = tool['function']['name']
                 function_args = tool['function']['arguments']
+                
+                expression = function_args.get('expression', '')
+                
+                # Se a expressão estiver vazia ou NÃO tiver nenhum número
+                has_numbers = any(char.isdigit() for char in expression)
+                
+                if not expression or not has_numbers:
+                    print(f"[DEBUG] Bloqueando chamada de ferramenta inválida: {expression}")
+                    # Retornamos uma resposta padrão em vez de deixar o erro acontecer
+                    return "Entendi sua mensagem, mas não há cálculo a ser feito. Como posso ajudar?"
 
-                # Validação e execução da função mapeada
+                # Se passou na verificação, executa a conta
                 if function_name in available_functions:
                     function_to_call = available_functions[function_name]
-                    
-                    # Execução da ferramenta de cálculo
-                    tool_output = function_to_call(function_args.get('expression'))
-                    
-                    # Retorno apenas do resultado do cálculo para simplificação (neste teste)
-                    # Em um chat real, esse resultado voltaria ao modelo para gerar uma frase final
+                    tool_output = function_to_call(expression)
                     return f"Resultado do cálculo: {tool_output}"
 
-        # Retorno da resposta textual padrão caso nenhuma ferramenta tenha sido acionada
-        return response['message']['content']
+        # Retorna o conteúdo de texto da IA
+        content = response['message']['content']
+        
+        # Fallback: Se a IA tentou chamar ferramenta (e falhou) e retornou content vazio
+        if not content:
+            return "Olá! Sou seu assistente virtual. Pode me pedir para calcular algo ou apenas conversar."
+            
+        return content
 
     except Exception as e:
-        return f"Falha no processamento do agente: {str(e)}"
+        return f"Erro no processamento: {str(e)}"
