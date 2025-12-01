@@ -1,15 +1,17 @@
 import os
 from dotenv import load_dotenv
 
-# Carrega as variáveis definidas no arquivo .env para o contexto da aplicação
 load_dotenv()
 
 class Config:
-    # Definição do modelo de LLM (padrão: llama3)
-    MODEL_NAME = os.getenv("MODEL_NAME", "llama3")
-    
-    # URL base para conexão com a API do Ollama
+    # IA
+    MODEL_NAME = os.getenv("MODEL_NAME", "llama3.1")
     OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+    
+    # API / Servidor
+    PROJECT_NAME = os.getenv("PROJECT_NAME", "API Chat Agente IA")
+    API_HOST = os.getenv("API_HOST", "0.0.0.0")
+    API_PORT = int(os.getenv("API_PORT", "8000")) # Convertendo para inteiro
+    API_VERSION = os.getenv("API_VERSION", "v1")
 
-# Instância exportada para uso nos serviços
 settings = Config()
